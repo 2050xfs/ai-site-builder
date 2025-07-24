@@ -168,12 +168,10 @@ async function generateWebsite() {
 
 generateWebsite().catch(console.error);`;
 
-    // Write the script to a file
-    await sandbox.process.executeCommand(
-      `cat > generate.js << 'SCRIPT_EOF'
-${generationScript}
-SCRIPT_EOF`,
-      projectDir
+    // Write the script to a file using the Daytona FS API to avoid shell injection
+    await sandbox.fs.uploadFile(
+      Buffer.from(generationScript, "utf8"),
+      `${projectDir}/generate.js`
     );
     console.log("✓ Generation script written to generate.js");
 

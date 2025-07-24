@@ -1,0 +1,15 @@
+# Node
+node_modules/
+.env
+.env.local
+
+# Next.js
+.next/
+
+# Build
+*.log
+dist/
+
+# Daytona
+*.tgz
+package/
