@@ -4,23 +4,25 @@ import { useState, useEffect, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 
-interface Message {
-  type: "claude_message" | "tool_use" | "tool_result" | "progress" | "error" | "complete";
-  content?: string;
-  name?: string;
-  input?: any;
-  result?: any;
-  message?: string;
-  previewUrl?: string;
-  sandboxId?: string;
-}
+type AgentMessage =
+  | { type: "status"; message: string }
+  | { type: "assistant_message"; content: string }
+  | { type: "plan"; title: string; steps: string[]; stack: string[] }
+  | {
+      type: "deployment";
+      environment: "preview" | "production";
+      url: string;
+      notes?: string;
+    }
+  | { type: "complete"; summary: string; previewUrl?: string }
+  | { type: "error"; message: string };
 
 export default function GeneratePage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const prompt = searchParams.get("prompt") || "";
   
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +56,10 @@ export default function GeneratePage() {
   
   const generateWebsite = async () => {
     try {
-      const response = await fetch("/api/generate-daytona", {
+      setMessages([]);
+      setError(null);
+      setPreviewUrl(null);
+      const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -91,15 +96,23 @@ export default function GeneratePage() {
             }
 
             try {
-              const message = JSON.parse(data) as Message;
-              
-              if (message.type === "error") {
-                throw new Error(message.message);
-              } else if (message.type === "complete") {
-                setPreviewUrl(message.previewUrl || null);
+              const event = JSON.parse(data) as AgentMessage;
+
+              if (event.type === "deployment") {
+                if (event.url) {
+                  setPreviewUrl(event.url);
+                }
+              }
+
+              if (event.type === "complete") {
+                setPreviewUrl(event.previewUrl || null);
                 setIsGenerating(false);
-              } else {
-                setMessages((prev) => [...prev, message]);
+              }
+
+              setMessages((prev) => [...prev, event]);
+
+              if (event.type === "error") {
+                throw new Error(event.message);
               }
             } catch (e) {
               // Ignore parse errors
@@ -107,6 +120,8 @@ export default function GeneratePage() {
           }
         }
       }
+
+      setIsGenerating(false);
     } catch (err: any) {
       console.error("Error generating website:", err);
       setError(err.message || "An error occurred");
@@ -114,34 +129,6 @@ export default function GeneratePage() {
     }
   };
   
-  const formatToolInput = (input: any) => {
-    if (!input) return "";
-    
-    // Extract key information based on tool type
-    if (input.file_path) {
-      return `File: ${input.file_path}`;
-    } else if (input.command) {
-      return `Command: ${input.command}`;
-    } else if (input.pattern) {
-      return `Pattern: ${input.pattern}`;
-    } else if (input.prompt) {
-      return `Prompt: ${input.prompt.substring(0, 100)}...`;
-    }
-    
-    // For other cases, show first meaningful field
-    const keys = Object.keys(input);
-    if (keys.length > 0) {
-      const firstKey = keys[0];
-      const value = input[firstKey];
-      if (typeof value === 'string' && value.length > 100) {
-        return `${firstKey}: ${value.substring(0, 100)}...`;
-      }
-      return `${firstKey}: ${value}`;
-    }
-    
-    return JSON.stringify(input).substring(0, 100) + "...";
-  };
-
   return (
     <main className="h-screen bg-black flex flex-col overflow-hidden relative">
       <Navbar />
@@ -159,36 +146,98 @@ export default function GeneratePage() {
           
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4 overflow-x-hidden">
-            {messages.map((message, index) => (
-              <div key={index}>
-                {message.type === "claude_message" && (
-                  <div className="bg-gray-900 rounded-lg p-4">
+            {messages.map((message, index) => {
+              if (message.type === "status") {
+                return (
+                  <div key={index} className="text-gray-500 text-sm font-mono">
+                    {message.message}
+                  </div>
+                );
+              }
+
+              if (message.type === "assistant_message") {
+                return (
+                  <div key={index} className="bg-gray-900 rounded-lg p-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center">
-                        <span className="text-white text-xs">L</span>
+                      <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xs">AI</span>
                       </div>
-                      <span className="text-white font-medium">Lovable</span>
+                      <span className="text-white font-medium">OpenAI Codex Agent</span>
                     </div>
                     <p className="text-gray-300 whitespace-pre-wrap break-words">{message.content}</p>
                   </div>
-                )}
-                
-                {message.type === "tool_use" && (
-                  <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-800 overflow-hidden">
-                    <div className="flex items-start gap-2 text-sm">
-                      <span className="text-blue-400 flex-shrink-0">🔧 {message.name}</span>
-                      <span className="text-gray-500 break-all">{formatToolInput(message.input)}</span>
+                );
+              }
+
+              if (message.type === "plan") {
+                return (
+                  <div key={index} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+                    <h3 className="text-white font-semibold mb-2">{message.title}</h3>
+                    <div className="text-gray-300 text-sm space-y-2">
+                      <div>
+                        <h4 className="font-medium text-gray-200">Execution Steps</h4>
+                        <ol className="list-decimal ml-5 space-y-1">
+                          {message.steps.map((step, stepIndex) => (
+                            <li key={stepIndex}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-200">Technology Stack</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {message.stack.map((item) => (
+                            <span
+                              key={item}
+                              className="px-2 py-1 bg-gray-800 text-gray-300 rounded-full text-xs"
+                            >
+                              {item}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                )}
-                
-                {message.type === "progress" && (
-                  <div className="text-gray-500 text-sm font-mono break-all">
-                    {message.message}
+                );
+              }
+
+              if (message.type === "deployment") {
+                return (
+                  <div key={index} className="bg-emerald-900/10 border border-emerald-700 rounded-lg p-3 text-sm text-emerald-300">
+                    <div className="font-semibold">Deployment prep: {message.environment}</div>
+                    {message.notes && <p className="mt-1 text-emerald-200/80">{message.notes}</p>}
+                    {message.url && (
+                      <a
+                        href={message.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-block text-emerald-400 hover:text-emerald-300"
+                      >
+                        View deployment →
+                      </a>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              }
+
+              if (message.type === "complete") {
+                return (
+                  <div key={index} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+                    <div className="text-green-400 font-semibold mb-2">Plan Ready</div>
+                    <p className="text-gray-300 text-sm">{message.summary}</p>
+                  </div>
+                );
+              }
+
+              if (message.type === "error") {
+                return (
+                  <div key={index} className="bg-red-900/20 border border-red-700 rounded-lg p-4">
+                    <p className="text-red-400">{message.message}</p>
+                  </div>
+                );
+              }
+
+              return null;
+            })}
             
             {isGenerating && (
               <div className="flex items-center gap-2 text-gray-400">

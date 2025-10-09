@@ -5,16 +5,15 @@ We appreciate your interest and hope you enjoy exploring and building with it.
 
 ## Getting Started
 
-Before you begin, please make sure to **replace the API keys** in your `.env` file:
+Before you begin, please make sure to **add the required API keys** to your `.env` file:
 
-- Get your Anthropic API key from: [Anthropic Console](https://console.anthropic.com/dashboard)
-- Get your Daytona API key from: [Daytona Dashboard](https://www.daytona.io/)
+- Get your OpenAI API key from: [OpenAI Console](https://platform.openai.com/)
 
-Add these keys to your `.env` file as follows:
+Add the key to your `.env` file as follows:
 
 ``` .env
-ANTHROPIC_API_KEY=your_anthropic_api_key
-DAYTONA_API_KEY=your_daytona_api_key
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_CODE_MODEL=gpt-4o-mini
 ```
 
 ## Install & Run
