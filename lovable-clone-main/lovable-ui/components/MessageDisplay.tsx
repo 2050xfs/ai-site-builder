@@ -1,39 +1,22 @@
-import { type SDKMessage } from "@anthropic-ai/claude-code";
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import type { SiteBuilderEvent } from "@/lib/openai-agent";
 
 interface MessageDisplayProps {
-  messages: SDKMessage[];
+  events: SiteBuilderEvent[];
 }
 
-export default function MessageDisplay({ messages }: MessageDisplayProps) {
-  const [generatedPages, setGeneratedPages] = useState<string[]>([]);
-  
-  useEffect(() => {
-    // Look for generated pages
-    const pages = messages
-      .filter((m: any) => 
-        m.type === 'tool_use' && 
-        m.name === 'Write' && 
-        m.input?.file_path?.includes('/app/') &&
-        (m.input?.file_path?.endsWith('.tsx') || m.input?.file_path?.endsWith('/page.tsx'))
-      )
-      .map((m: any) => {
-        const path = m.input.file_path;
-        const match = path.match(/\/app\/([^\/]+)\//);
-        return match ? `/${match[1]}` : null;
-      })
+export default function MessageDisplay({ events }: MessageDisplayProps) {
+  const generatedPages = useMemo(() => {
+    return events
+      .filter((event) => event.type === "deployment" && event.url)
+      .map((event) => event.type === "deployment" ? event.url : "")
       .filter(Boolean);
-    
-    setGeneratedPages([...new Set(pages)]);
-  }, [messages]);
-  
-  if (messages.length === 0) return null;
-  
-  // Filter to show only assistant messages and tool uses
-  const displayMessages = messages.filter(m => 
-    m.type === 'assistant' || m.type === 'tool_use' || m.type === 'result'
-  );
-  
+  }, [events]);
+
+  if (events.length === 0) {
+    return null;
+  }
+
   return (
     <div className="mt-8 max-w-4xl mx-auto px-4">
       <div className="bg-gray-900/50 backdrop-blur-sm rounded-2xl border border-gray-800 p-6 max-h-[600px] overflow-y-auto">
@@ -41,119 +24,72 @@ export default function MessageDisplay({ messages }: MessageDisplayProps) {
           <h3 className="text-lg font-semibold text-white">AI Assistant</h3>
           {generatedPages.length > 0 && (
             <div className="flex gap-2">
-              {generatedPages.map((page, idx) => (
+              {generatedPages.map((page) => (
                 <a
-                  key={idx}
+                  key={page}
                   href={page}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors"
                 >
-                  Open {page} →
+                  Open preview →
                 </a>
               ))}
             </div>
           )}
         </div>
-        
+
         <div className="space-y-3">
-          {displayMessages.map((message, index) => {
-            // Assistant messages
-            if (message.type === 'assistant' && (message as any).message?.content) {
-              const content = (message as any).message.content;
-              const textContent = Array.isArray(content) 
-                ? content.find((c: any) => c.type === 'text')?.text 
-                : content;
-                
-              if (!textContent) return null;
-              
+          {events.map((event, index) => {
+            if (event.type === "status") {
               return (
-                <div key={index} className="animate-fadeIn">
-                  <div className="text-gray-300 leading-relaxed">
-                    {textContent}
-                  </div>
+                <div key={index} className="text-gray-500 text-sm font-mono">
+                  {event.message}
                 </div>
               );
             }
-            
-            // Tool uses - show as compact status
-            if (message.type === 'tool_use') {
-              const toolName = (message as any).name;
-              const input = (message as any).input;
-              
+
+            if (event.type === "assistant_message") {
               return (
-                <div key={index} className="animate-fadeIn">
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-                    <span className="font-mono">
-                      {toolName === 'Write' && input?.file_path && 
-                        `Creating ${input.file_path.split('/').pop()}`}
-                      {toolName === 'Edit' && input?.file_path && 
-                        `Editing ${input.file_path.split('/').pop()}`}
-                      {toolName === 'Read' && input?.file_path && 
-                        `Reading ${input.file_path.split('/').pop()}`}
-                      {toolName === 'Bash' && input?.command && 
-                        `Running: ${input.command.substring(0, 50)}...`}
-                      {!['Write', 'Edit', 'Read', 'Bash'].includes(toolName) && 
-                        `Using ${toolName}`}
-                    </span>
-                  </div>
+                <div key={index} className="text-gray-300 leading-relaxed">
+                  {event.content}
                 </div>
               );
             }
-            
-            // Final result
-            if (message.type === 'result' && (message as any).subtype === 'success') {
+
+            if (event.type === "plan") {
               return (
-                <div key={index} className="animate-fadeIn mt-4">
-                  <div className="bg-green-900/20 border border-green-700 rounded-lg p-4">
-                    <div className="text-green-400 font-semibold mb-2">✅ Generation Complete</div>
-                    <div className="text-gray-300 text-sm">
-                      {(message as any).result}
-                    </div>
-                    {(message as any).total_cost_usd && (
-                      <div className="text-xs text-gray-500 mt-2">
-                        Cost: ${(message as any).total_cost_usd.toFixed(4)}
-                      </div>
-                    )}
-                  </div>
+                <div key={index} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+                  <h3 className="text-white font-semibold mb-2">{event.title}</h3>
+                  <ol className="list-decimal ml-5 text-gray-300 space-y-1 text-sm">
+                    {event.steps.map((step, stepIndex) => (
+                      <li key={stepIndex}>{step}</li>
+                    ))}
+                  </ol>
                 </div>
               );
             }
-            
+
+            if (event.type === "deployment") {
+              return (
+                <div key={index} className="text-sm text-emerald-300">
+                  Deployment target: {event.environment}
+                </div>
+              );
+            }
+
+            if (event.type === "complete") {
+              return (
+                <div key={index} className="text-green-400 text-sm">
+                  {event.summary}
+                </div>
+              );
+            }
+
             return null;
           })}
-          
-          {/* Show typing indicator if still generating */}
-          {messages.length > 0 && !messages.some((m: any) => m.type === 'result') && (
-            <div className="flex items-center gap-2 text-gray-500">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '0ms'}} />
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '150ms'}} />
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay: '300ms'}} />
-              </div>
-              <span className="text-sm">AI is working...</span>
-            </div>
-          )}
         </div>
       </div>
-      
-      <style jsx>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.3s ease-out;
-        }
-      `}</style>
     </div>
   );
 }
